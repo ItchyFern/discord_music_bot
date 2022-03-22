@@ -68,6 +68,10 @@ class music(commands.Cog):
 
         # connect the args
         search = " ".join(args)
+
+        # Send message to inform users that bot is looking for music
+        bot_msg = await ctx.send(f"Searching for \"{search}\"")
+
         # get information for stream
         manager = Manager()
         info_dict = manager.dict()
@@ -81,7 +85,7 @@ class music(commands.Cog):
         print("After join\n", info_dict)
         self.queue[ctx.message.guild.id].append(info_dict)
 
-        await ctx.send(f"Successfully added {info_dict['title']} to the queue!")
+        await bot_msg.edit(content=f"Successfully added {info_dict['title']} to the queue!")
 
         # send the stream of audio directly through the voice chat
         # lambda function to add in the play_next function
