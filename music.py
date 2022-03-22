@@ -5,13 +5,14 @@ import youtube_dl
 import asyncio
 from requests import get
 
+FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
 class music(commands.Cog):
     def __init__(self, client):
         self.client = client
         self.queue = {}
-        self.queue_urls = {}
         self.stopped = {}
+        
 
     @commands.command(aliases=['j'])
     async def join(self, ctx):
@@ -36,7 +37,6 @@ class music(commands.Cog):
         # wait for the bot to leave the voice channel its in
         # delete queue
         self.queue[ctx.message.guild.id] = []
-        self.queue_urls[ctx.message.guild.id] = []
 
         # set stopped variable
         self.stopped[ctx.message.guild.id] = True
@@ -59,15 +59,14 @@ class music(commands.Cog):
         # if the bot is currently playing a song, stop the song
         # ctx.voice_client.stop()
 
-        FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
-        YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True', 'ratelimit': "100K"}
+        
+        YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True', 'ratelimit': "100K"}          
 
         #declare voice chat
         vc = ctx.voice_client
 
         # connect the args
         search = " ".join(args)
-
         # create stream for the audio
         with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
             # search 
@@ -83,7 +82,6 @@ class music(commands.Cog):
 
             url2 = info['formats'][0]['url']
             await ctx.send(f"found the song")
-            source = await discord.FFmpegOpusAudio.from_probe(url2, **FFMPEG_OPTIONS)
 
             # clear youtube cache
             ydl.cache.remove()
@@ -92,16 +90,16 @@ class music(commands.Cog):
             if not len(self.queue.get(ctx.message.guild.id, [])) > 0:
                 self.queue[ctx.message.guild.id] = []
             # add the new song to the queue
-            self.queue[ctx.message.guild.id].append(source)
-            if not len(self.queue_urls.get(ctx.message.guild.id, [])) > 0:
-                self.queue_urls[ctx.message.guild.id] = []
-            self.queue_urls[ctx.message.guild.id].append(info['title'])
-            print(self.queue)
+            self.queue[ctx.message.guild.id].append({"url": url2, "title": info["title"]})
+
             await ctx.send(f"Successfully added {info['title']} to the queue!")
+
             # send the stream of audio directly through the voice chat
             # lambda function to add in the play_next function
             if not vc.is_playing():
-                vc.play(source=source, after=lambda e: self.play_next(ctx))
+                print(f'Attempting to play: {self.queue[ctx.message.guild.id][0]["title"]}')
+                source = await discord.FFmpegOpusAudio.from_probe(url2, **FFMPEG_OPTIONS)
+                vc.play(source=source, after=lambda e: asyncio.run(self.play_next(ctx)))           
 
     @commands.command(aliases=['s'])
     async def stop(self, ctx):
@@ -136,33 +134,34 @@ class music(commands.Cog):
     
     @commands.command()
     async def skip(self, ctx):
-        if len(self.queue.get(ctx.message.guild.id, [])) > 0:
+        if len(self.queue.get(ctx.message.guild.id, [])) > 1:
             await ctx.send("Playing next song.")
             #await ctx.voice_client.stop()
-            ctx.voice_client.stop()
         else:
             await ctx.send("No more songs in the queue.")
+        ctx.voice_client.stop()
 
     @commands.command(aliases=["q"])
     async def queue(self, ctx):
+        # initialize return string that will hold what the bot will reply with
         return_string = ""
         if len(self.queue.get(ctx.message.guild.id, [])) > 0:
-            for i in range(len(self.queue_urls[ctx.message.guild.id])):
-                return_string += f"{i+1}. {self.queue_urls[ctx.message.guild.id][i]}\n"
+            for i in range(len(self.queue[ctx.message.guild.id])):
+                return_string += f"{i+1}. {self.queue[ctx.message.guild.id][i]['title']}\n"
             return_string = f"```\n{return_string}\n```"
         else:
             return_string = "There's nothing in my queue right now!"
         await ctx.author.send(return_string)
 
-    def play_next(self, ctx):
+    async def play_next(self, ctx):
         vc = ctx.voice_client
+        del self.queue[ctx.message.guild.id][0]
         if len(self.queue.get(ctx.message.guild.id, [])) >= 2:
-            source = self.queue[ctx.message.guild.id][1]
-            del self.queue[ctx.message.guild.id][0]
-            del self.queue_urls[ctx.message.guild.id][0]
+            print(f'Attempting to play next: {self.queue[ctx.message.guild.id][0]["title"]}')
+            source = await discord.FFmpegOpusAudio.from_probe(self.queue[ctx.message.guild.id][0]["url"], **FFMPEG_OPTIONS)
             if vc.is_playing():
                 vc.stop()
-            vc.play(source=source, after=lambda e: self.play_next(ctx))
+            vc.play(source=source, after=lambda e: asyncio.run(self.play_next(ctx)))
         else:
             #if it wasn't manually stopped
             if not self.stopped.get(ctx.message.guild.id, False):
