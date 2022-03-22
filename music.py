@@ -79,7 +79,6 @@ class music(commands.Cog):
             
             # get info from youtubedl
             # info = ydl.extract_info(url, download=False)
-
             url2 = info['formats'][0]['url']
             await ctx.send(f"found the song")
 
@@ -90,7 +89,7 @@ class music(commands.Cog):
             if not len(self.queue.get(ctx.message.guild.id, [])) > 0:
                 self.queue[ctx.message.guild.id] = []
             # add the new song to the queue
-            self.queue[ctx.message.guild.id].append({"url": url2, "title": info["title"]})
+            self.queue[ctx.message.guild.id].append({"url": url2, "title": info["title"], "id": info["id"]})
 
             await ctx.send(f"Successfully added {info['title']} to the queue!")
 
@@ -105,7 +104,6 @@ class music(commands.Cog):
     async def stop(self, ctx):
         # delete queue
         self.queue[ctx.message.guild.id] = []
-        self.queue_urls[ctx.message.guild.id] = []
         # set stopped variable
         self.stopped[ctx.message.guild.id] = True
         # inform the user of the action
@@ -144,19 +142,20 @@ class music(commands.Cog):
     @commands.command(aliases=["q"])
     async def queue(self, ctx):
         # initialize return string that will hold what the bot will reply with
-        return_string = ""
         if len(self.queue.get(ctx.message.guild.id, [])) > 0:
-            for i in range(len(self.queue[ctx.message.guild.id])):
-                return_string += f"{i+1}. {self.queue[ctx.message.guild.id][i]['title']}\n"
-            return_string = f"```\n{return_string}\n```"
+            
+            embed = embed_builder(self.queue[ctx.message.guild.id])
+            
+            await ctx.send(embed=embed)
         else:
-            return_string = "There's nothing in my queue right now!"
-        await ctx.author.send(return_string)
+            ret = "There's nothing in my queue right now!"
+            
+            await ctx.send(ret)
 
     async def play_next(self, ctx):
         vc = ctx.voice_client
-        del self.queue[ctx.message.guild.id][0]
         if len(self.queue.get(ctx.message.guild.id, [])) >= 2:
+            del self.queue[ctx.message.guild.id][0]
             print(f'Attempting to play next: {self.queue[ctx.message.guild.id][0]["title"]}')
             source = await discord.FFmpegOpusAudio.from_probe(self.queue[ctx.message.guild.id][0]["url"], **FFMPEG_OPTIONS)
             if vc.is_playing():
@@ -168,12 +167,18 @@ class music(commands.Cog):
                 asyncio.sleep(90) #wait 1 minute and 30 seconds
                 if not vc.is_playing():
                     asyncio.run_coroutine_threadsafe(vc.disconnect(), self.client.loop)
-                    asyncio.run_coroutine_threadsafe(ctx.send("No more songs in queue."))
+                    asyncio.run_coroutine_threadsafe(ctx.send("No more songs in queue."), self.client.loop)
             #if it was manually stopped, reset the stopped variable
             else:
                 self.stopped[ctx.message.guild.id] = False
 
-   
+def embed_builder(queue):
+    embed = discord.Embed()
+    embed.title = "Music Player Queue"
+    for i, item in enumerate(queue):
+        embed.add_field(name=f'{i}. {item["title"]}', value=f"https://www.youtube.com/watch?v={item['id']}", inline=False)
+    return embed
+
 
 
 def setup(client):
