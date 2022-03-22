@@ -1,9 +1,10 @@
-from re import S
+from multiprocessing import Process, Manager
 import discord
 from discord.ext import commands
 import youtube_dl
 import asyncio
 from requests import get
+
 
 FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
@@ -67,38 +68,27 @@ class music(commands.Cog):
 
         # connect the args
         search = " ".join(args)
-        # create stream for the audio
-        with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
-            # search 
-            try:
-                get(search) 
-            except:
-                info = ydl.extract_info(f"ytsearch:{search}", download=False)['entries'][0]
-            else:
-                info = ydl.extract_info(search, download=False)
-            
-            # get info from youtubedl
-            # info = ydl.extract_info(url, download=False)
-            url2 = info['formats'][0]['url']
-            await ctx.send(f"found the song")
+        # get information for stream
+        manager = Manager()
+        info_dict = manager.dict()
+        p = Process(target=get_yt_info, args=(YDL_OPTIONS, search, info_dict, ))
+        p.start()
+        p.join()
+        #if the length of the queue is not greater than 0 build an empty queue
+        if not len(self.queue.get(ctx.message.guild.id, [])) > 0:
+            self.queue[ctx.message.guild.id] = []
+        # add the new song to the queue
+        print("After join\n", info_dict)
+        self.queue[ctx.message.guild.id].append(info_dict)
 
-            # clear youtube cache
-            ydl.cache.remove()
-            
-            #if the length of the queue is not greater than 0 build an empty queue
-            if not len(self.queue.get(ctx.message.guild.id, [])) > 0:
-                self.queue[ctx.message.guild.id] = []
-            # add the new song to the queue
-            self.queue[ctx.message.guild.id].append({"url": url2, "title": info["title"], "id": info["id"]})
+        await ctx.send(f"Successfully added {info_dict['title']} to the queue!")
 
-            await ctx.send(f"Successfully added {info['title']} to the queue!")
-
-            # send the stream of audio directly through the voice chat
-            # lambda function to add in the play_next function
-            if not vc.is_playing():
-                print(f'Attempting to play: {self.queue[ctx.message.guild.id][0]["title"]}')
-                source = await discord.FFmpegOpusAudio.from_probe(url2, **FFMPEG_OPTIONS)
-                vc.play(source=source, after=lambda e: asyncio.run(self.play_next(ctx)))           
+        # send the stream of audio directly through the voice chat
+        # lambda function to add in the play_next function
+        if not vc.is_playing():
+            print(f'Attempting to play: {info_dict["title"]}')
+            source = await discord.FFmpegOpusAudio.from_probe(self.queue[ctx.message.guild.id][0]["url"], **FFMPEG_OPTIONS)
+            vc.play(source=source, after=lambda e: asyncio.run(self.play_next(ctx)))           
 
     @commands.command(aliases=['s'])
     async def stop(self, ctx):
@@ -152,6 +142,7 @@ class music(commands.Cog):
             
             await ctx.send(ret)
 
+    # UTILITY FUNCTION FOR PLAYING NEXT SONG
     async def play_next(self, ctx):
         vc = ctx.voice_client
         if len(self.queue.get(ctx.message.guild.id, [])) >= 2:
@@ -178,6 +169,28 @@ def embed_builder(queue):
     for i, item in enumerate(queue):
         embed.add_field(name=f'{i}. {item["title"]}', value=f"https://www.youtube.com/watch?v={item['id']}", inline=False)
     return embed
+
+def get_yt_info(YDL_OPTIONS, search, info_dict):
+    with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
+        # search 
+        try:
+            get(search) 
+        except:
+            info = ydl.extract_info(f"ytsearch:{search}", download=False)['entries'][0]
+        else:
+            info = ydl.extract_info(search, download=False)
+    
+        
+        # print("\n\n\n\n", info, "\n\n\n\n")
+        url2 = info['formats'][0]['url']
+
+        # clear youtube cache
+        ydl.cache.remove()
+    
+    info_dict["url"] = url2 
+    info_dict["title"] = info["title"]
+    info_dict["id"] = info["id"]
+    print(info_dict)
 
 
 
