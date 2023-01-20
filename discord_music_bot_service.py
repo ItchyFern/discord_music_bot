@@ -6,6 +6,8 @@ import os
 from dotenv import load_dotenv
 import music
 
+# more commented out stuff
+
 prefix="!"
 bot = commands.Bot(command_prefix=prefix, intents=discord.Intents.all(), activity=discord.Activity(type=discord.ActivityType.watching, name=f"for {prefix}help"))
 client = discord.Client()
